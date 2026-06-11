@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patron Textile Paramétrique — PoC SaaS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🪡 Patron Textile Paramétrique</h1>
+      <p class="subtitle">Prototype SaaS — Manipulation vectorielle en temps réel</p>
+    </header>
+
+    <main>
+      <!-- Zone de dessin Paper.js -->
+      <div id="canvas-wrapper">
+        <canvas id="patronCanvas" width="680" height="460"></canvas>
+      </div>
+
+      <!-- Panneau de contrôle -->
+      <aside id="controls">
+        <h2>Mesures du patron</h2>
+        <p class="patron-name" id="patron-name">Chargement…</p>
+
+        <!-- Les sliders sont générés dynamiquement par app.js -->
+        <div id="mesures-list"></div>
+
+        <div id="info-section">
+          <h3>Coordonnées (px)</h3>
+          <ul id="points-info"></ul>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Paper.js servi localement depuis node_modules (pas de dépendance CDN) -->
+  <script src="/vendor/paper-full.min.js"></script>
+  <!-- Logique applicative -->
+  <script src="app.js"></script>
+</body>
+</html>
