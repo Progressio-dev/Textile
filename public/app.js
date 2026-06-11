@@ -36,9 +36,9 @@ const patronData = {
    */
   pointsRef: {
     A: { x: 60,  y: 70  },
-    B: { x: 276, y: 70  },   // 60 + 72 cm × 3 px/cm = 276
-    C: { x: 306, y: 250 },   // 276 + 30 px de tombé ; 70 + 60 cm × 3 px/cm = 250
-    D: { x: 60,  y: 250 },   // 60 + 60 cm × 3 px/cm = 250
+    B: { x: 276, y: 70  },   // x: 60 + (72 cm × 3 px/cm) = 276
+    C: { x: 306, y: 250 },   // x: 276 + 30 px (aisance ourlet) = 306 ; y: 70 + (60 cm × 3 px/cm) = 250
+    D: { x: 60,  y: 250 },   // x: 60 (inchangé) ; y: 70 + (60 cm × 3 px/cm) = 250
   },
 
   /** Ordre des points définissant le contour fermé */
@@ -164,7 +164,7 @@ function calculerTousLesPoints() {
   // Point dérivé C :
   //   X = B.x + aisance ourlet (constante, lue depuis la référence)
   //   Y = D.y (suit la longueur)
-  const aisanceOurletPx = ref.C.x - ref.B.x;   // 30 px = 10 cm
+  const aisanceOurletPx = ref.C.x - ref.B.x;   // 30 px = 30 / echellePxParCm = 10 cm
   pts.C = {
     x: pts.B.x + aisanceOurletPx,
     y: pts.D.y,
