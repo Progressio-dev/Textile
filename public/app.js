@@ -204,43 +204,10 @@ function genererIdPoint(index) {
   return `${alphabet[base]}${alphabet[index % alphabet.length]}`;
 }
 
-function parserPointsListe(pointsBruts) {
-  return (pointsBruts || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .split(' ')
-    .map((pair) => pair.split(',').map((v) => parseFloat(v)))
-    .filter((pair) => pair.length === 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
-    .map(([x, y]) => ({ x, y }));
-}
-
-function extraireModeleDepuisSvg(svgText, nomFichier) {
-  if (!/<svg[\s>]/i.test(svgText)) {
-    throw new Error('Le fichier SVG est invalide.');
-  }
-
-  if (/<\s*(script|foreignObject|iframe|object)\b/i.test(svgText)) {
-    throw new Error('Le SVG contient des balises non autorisées.');
-  }
-
+function construireModeleDepuisSegments(segmentsBruts, nomFichier, nomParDefaut) {
   const pointsRef = {};
-  const segments = [];
   const pointMap = new Map();
-
-  function lireAttributNombre(attrText, nom) {
-    const regex = new RegExp(`${nom}\\s*=\\s*["']([^"']+)["']`, 'i');
-    const match = attrText.match(regex);
-    if (!match) {
-      return NaN;
-    }
-    return parseFloat(match[1]);
-  }
-
-  function lireAttributTexte(attrText, nom) {
-    const regex = new RegExp(`${nom}\\s*=\\s*["']([^"']+)["']`, 'i');
-    const match = attrText.match(regex);
-    return match ? match[1] : '';
-  }
+  const segments = [];
 
   function getOrCreatePointId(point) {
     const key = `${point.x.toFixed(2)}:${point.y.toFixed(2)}`;
@@ -253,11 +220,14 @@ function extraireModeleDepuisSvg(svgText, nomFichier) {
     return id;
   }
 
-  function pushSegment(startPoint, endPoint) {
-    const start = getOrCreatePointId(startPoint);
-    const end = getOrCreatePointId(endPoint);
+  for (const segment of segmentsBruts) {
+    if (!segment || !segment.start || !segment.end) {
+      continue;
+    }
+    const start = getOrCreatePointId(segment.start);
+    const end = getOrCreatePointId(segment.end);
     if (start === end) {
-      return;
+      continue;
     }
     segments.push({
       id: `S${segments.length + 1}`,
@@ -266,41 +236,12 @@ function extraireModeleDepuisSvg(svgText, nomFichier) {
     });
   }
 
-  const lineRegex = /<line\b([^>]*)\/?>/gi;
-  let matchLine;
-  while ((matchLine = lineRegex.exec(svgText)) !== null) {
-    const attrs = matchLine[1];
-    const x1 = lireAttributNombre(attrs, 'x1');
-    const y1 = lireAttributNombre(attrs, 'y1');
-    const x2 = lireAttributNombre(attrs, 'x2');
-    const y2 = lireAttributNombre(attrs, 'y2');
-    if ([x1, y1, x2, y2].every(Number.isFinite)) {
-      pushSegment({ x: x1, y: y1 }, { x: x2, y: y2 });
-    }
-  }
-
-  const polyRegex = /<(polyline|polygon)\b([^>]*)\/?>/gi;
-  let matchPoly;
-  while ((matchPoly = polyRegex.exec(svgText)) !== null) {
-    const type = matchPoly[1].toLowerCase();
-    const attrs = matchPoly[2];
-    const pts = parserPointsListe(lireAttributTexte(attrs, 'points'));
-    for (let i = 0; i < pts.length - 1; i += 1) {
-      pushSegment(pts[i], pts[i + 1]);
-    }
-    if (type === 'polygon' && pts.length > 2) {
-      pushSegment(pts[pts.length - 1], pts[0]);
-    }
-  }
-
   if (!Object.keys(pointsRef).length || !segments.length) {
-    throw new Error(
-      'SVG non pris en charge: utilisez des éléments line/polyline/polygon.'
-    );
+    throw new Error('Le fichier ne contient pas de segments exploitables.');
   }
 
   return {
-    nom: nomFichier || 'Patron SVG importé',
+    nom: nomFichier || nomParDefaut,
     pointsRef,
     pointsCourants: Object.fromEntries(
       Object.entries(pointsRef).map(([id, p]) => [id, { x: p.x, y: p.y }])
@@ -308,6 +249,134 @@ function extraireModeleDepuisSvg(svgText, nomFichier) {
     segments,
     zones: [],
   };
+}
+
+function extraireModeleDepuisDxf(dxfText, nomFichier) {
+  const lignes = (dxfText || '').replace(/\r/g, '').split('\n');
+  const segmentsBruts = [];
+
+  function lireEntite(indexDepart) {
+    const entite = {};
+    let i = indexDepart;
+    while (i + 1 < lignes.length) {
+      const code = (lignes[i] || '').trim();
+      const valeur = (lignes[i + 1] || '').trim();
+      if (code === '0') {
+        break;
+      }
+      if (!entite[code]) {
+        entite[code] = [];
+      }
+      entite[code].push(valeur);
+      i += 2;
+    }
+    return { entite, nextIndex: i };
+  }
+
+  function lireNombre(entite, code, index) {
+    const valeurs = entite[code] || [];
+    const raw = valeurs[index || 0];
+    const num = parseFloat(raw);
+    return Number.isFinite(num) ? num : NaN;
+  }
+
+  let i = 0;
+  while (i + 1 < lignes.length) {
+    const code = (lignes[i] || '').trim();
+    const valeur = (lignes[i + 1] || '').trim().toUpperCase();
+    if (code !== '0') {
+      i += 2;
+      continue;
+    }
+
+    if (valeur === 'LINE') {
+      const { entite, nextIndex } = lireEntite(i + 2);
+      const x1 = lireNombre(entite, '10');
+      const y1 = lireNombre(entite, '20');
+      const x2 = lireNombre(entite, '11');
+      const y2 = lireNombre(entite, '21');
+      if ([x1, y1, x2, y2].every(Number.isFinite)) {
+        segmentsBruts.push({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 } });
+      }
+      i = nextIndex;
+      continue;
+    }
+
+    if (valeur === 'LWPOLYLINE') {
+      const { entite, nextIndex } = lireEntite(i + 2);
+      const xs = entite['10'] || [];
+      const ys = entite['20'] || [];
+      const pts = [];
+      const count = Math.min(xs.length, ys.length);
+      for (let p = 0; p < count; p += 1) {
+        const x = parseFloat(xs[p]);
+        const y = parseFloat(ys[p]);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          pts.push({ x, y });
+        }
+      }
+      for (let p = 0; p < pts.length - 1; p += 1) {
+        segmentsBruts.push({ start: pts[p], end: pts[p + 1] });
+      }
+      const flags = parseInt((entite['70'] || ['0'])[0], 10);
+      if ((flags & 1) === 1 && pts.length > 2) {
+        segmentsBruts.push({ start: pts[pts.length - 1], end: pts[0] });
+      }
+      i = nextIndex;
+      continue;
+    }
+
+    i += 2;
+  }
+
+  return construireModeleDepuisSegments(segmentsBruts, nomFichier, 'Patron DXF importé');
+}
+
+function extraireModeleDepuisPdf(pdfText, nomFichier) {
+  const tokens = (pdfText || '').match(/-?\d*\.?\d+|[A-Za-z]{1,2}/g) || [];
+  const segmentsBruts = [];
+  const pile = [];
+  let pointCourant = null;
+
+  for (const token of tokens) {
+    const num = parseFloat(token);
+    if (Number.isFinite(num)) {
+      pile.push(num);
+      continue;
+    }
+
+    if (token === 'm' && pile.length >= 2) {
+      pointCourant = { x: pile[pile.length - 2], y: pile[pile.length - 1] };
+      pile.length = 0;
+      continue;
+    }
+
+    if (token === 'l' && pile.length >= 2 && pointCourant) {
+      const nextPoint = { x: pile[pile.length - 2], y: pile[pile.length - 1] };
+      segmentsBruts.push({ start: pointCourant, end: nextPoint });
+      pointCourant = nextPoint;
+      pile.length = 0;
+      continue;
+    }
+
+    if (token === 'S' || token === 's' || token === 'f' || token === 'n' || token === 'h') {
+      pile.length = 0;
+    }
+  }
+
+  return construireModeleDepuisSegments(segmentsBruts, nomFichier, 'Patron PDF importé');
+}
+
+function extraireModeleDepuisFichier(file, rawText) {
+  const nom = (file && file.name) || '';
+  const lower = nom.toLowerCase();
+  if (lower.endsWith('.dxf')) {
+    return extraireModeleDepuisDxf(rawText, nom);
+  }
+  if (lower.endsWith('.pdf')) {
+    return extraireModeleDepuisPdf(rawText, nom);
+  }
+  throw new Error('Format non pris en charge. Importez un fichier DXF ou PDF.');
 }
 
 function longueurChaine(points, chaineSegments) {
@@ -635,7 +704,7 @@ function creerControles() {
   container.innerHTML = '';
 
   if (patronImporte) {
-    container.innerHTML = '<p class="hint">Mesures paramétriques natives désactivées après import SVG.</p>';
+    container.innerHTML = '<p class="hint">Mesures paramétriques natives désactivées après import DXF/PDF.</p>';
     return;
   }
 
@@ -813,7 +882,7 @@ function ajouterSegmentOrienteZone() {
   const zoneId = document.getElementById('zone-select').value;
   const start = document.getElementById('segment-start').value;
   const end = document.getElementById('segment-end').value;
-  const status = document.getElementById('svg-import-status');
+  const status = document.getElementById('vector-import-status');
   const zone = patronImporte.zones.find((z) => z.id === zoneId);
   if (!zone || !start || !end || start === end) {
     status.textContent = 'Sélection de segment invalide.';
@@ -842,8 +911,8 @@ function brancherUiImportEtZones() {
   rafraichirSelecteursPointsEtZones();
   rafraichirDetailsZones();
 
-  const status = document.getElementById('svg-import-status');
-  const fileInput = document.getElementById('svg-import-input');
+  const status = document.getElementById('vector-import-status');
+  const fileInput = document.getElementById('vector-import-input');
   fileInput.addEventListener('change', async (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) {
@@ -851,8 +920,8 @@ function brancherUiImportEtZones() {
     }
 
     try {
-      const svgText = await file.text();
-      patronImporte = extraireModeleDepuisSvg(svgText, file.name);
+      const rawText = await file.text();
+      patronImporte = extraireModeleDepuisFichier(file, rawText);
       status.textContent = `Import réussi: ${Object.keys(patronImporte.pointsRef).length} points, ${patronImporte.segments.length} segments.`;
       document.getElementById('patron-name').textContent = patronImporte.nom;
       creerControles();
