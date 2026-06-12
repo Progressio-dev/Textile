@@ -9,11 +9,11 @@ npm install
 npm start
 ```
 
-## Nouveau flux : patron vectoriel à plat (SVG)
+## Nouveau flux : patron vectoriel à plat (DXF / PDF)
 
 Depuis le panneau de droite :
 
-1. **Import vectoriel (SVG)** : charger un fichier SVG contenant des `line`, `polyline` ou `polygon`.
+1. **Import vectoriel (DXF / PDF)** : charger un fichier `.dxf` ou `.pdf` contenant des segments vectoriels.
 2. **Zones de mesure** :
    - créer une zone,
    - choisir son type métier (`taille`, `poitrine`, `hanches`, `longueur`, `épaule`),
