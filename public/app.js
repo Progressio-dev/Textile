@@ -336,22 +336,25 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 
 function extraireModeleDepuisPdf(pdfText, nomFichier) {
   if (/\/Filter\s*\/FlateDecode/i.test(pdfText || '')) {
-    throw new Error('Ce PDF est compressé et ne peut pas être importé. Utilisez un fichier DXF ou un PDF non compressé.');
+    throw new Error('Ce PDF utilise FlateDecode et ne peut pas être importé ici. Utilisez un fichier DXF ou un PDF non compressé.');
   }
 
-  // Extrait des nombres + opérateurs de path PDF supportés ici (m, l, S, s, f, n, h).
+  // Extrait des nombres + opérateurs PDF supportés ici :
+  // m=moveto, l=lineto, h=closepath, S/s=stroke, f=fill, n=end path sans rendu.
   // Les autres opérateurs (c, v, y, re...) ne sont pas interprétés dans ce flux minimal.
   const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[mlSsfnh]/g) || [];
   const segmentsBruts = [];
   const pile = [];
   let pointCourant = null;
   let debutSousChemin = null;
+  const COORDINATE_EPSILON = 1e-6;
 
   function lirePairesDepuisPile() {
     const paires = [];
     for (let i = 0; i + 1 < pile.length; i += 2) {
       paires.push({ x: pile[i], y: pile[i + 1] });
     }
+    // Vidage intentionnel : les valeurs ont été consommées par l'opérateur courant.
     pile.length = 0;
     return paires;
   }
@@ -385,10 +388,9 @@ function extraireModeleDepuisPdf(pdfText, nomFichier) {
 
     // h: close path (retour au point de départ du sous-chemin).
     if (token === 'h' && pointCourant && debutSousChemin) {
-      const epsilon = 1e-6;
       if (
-        Math.abs(pointCourant.x - debutSousChemin.x) > epsilon
-        || Math.abs(pointCourant.y - debutSousChemin.y) > epsilon
+        Math.abs(pointCourant.x - debutSousChemin.x) > COORDINATE_EPSILON
+        || Math.abs(pointCourant.y - debutSousChemin.y) > COORDINATE_EPSILON
       ) {
         segmentsBruts.push({ start: pointCourant, end: debutSousChemin });
       }
