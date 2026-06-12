@@ -71,11 +71,92 @@ main {
   color: #2c3e50;
 }
 
+#controls h3 {
+  font-size: 0.85rem;
+  color: #2c3e50;
+  margin-bottom: 8px;
+}
+
 .patron-name {
   font-size: 0.82rem;
   color: #888;
   margin-bottom: 18px;
   font-style: italic;
+}
+
+.panel-section {
+  background: #fff;
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-section label {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-size: 0.74rem;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.panel-section input[type='text'],
+.panel-section input[type='number'],
+.panel-section select,
+.panel-section button,
+.panel-section input[type='file'] {
+  width: 100%;
+}
+
+.panel-section input[type='text'],
+.panel-section input[type='number'],
+.panel-section select {
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 0.85rem;
+  background: #fff;
+}
+
+.panel-section button {
+  margin-top: 8px;
+  border: 1px solid #1f6eb3;
+  background: #2980b9;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.panel-section button:hover {
+  background: #1f6eb3;
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: #8d8d8d;
+}
+
+.segment-editor {
+  margin-top: 12px;
+}
+
+#zone-details {
+  list-style: none;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: #666;
+  line-height: 1.45;
+}
+
+#zone-details li {
+  padding: 6px 0;
+  border-top: 1px solid #f1f1f1;
 }
 
 /* ── Contrôle d'une mesure ──────────────────────────── */

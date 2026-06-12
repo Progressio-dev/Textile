@@ -95,6 +95,16 @@ const patronData = {
   ],
 };
 
+const MEASURE_TYPE_OPTIONS = [
+  { id: 'taille', label: 'Taille' },
+  { id: 'poitrine', label: 'Poitrine' },
+  { id: 'hanches', label: 'Hanches' },
+  { id: 'longueur', label: 'Longueur' },
+  { id: 'epaule', label: 'Épaule' },
+];
+
+let patronImporte = null;
+
 // ============================================================================
 // COUCHE GÉOMÉTRIQUE
 // Recalcule toutes les coordonnées à partir des pointsRef et des mesures
@@ -171,6 +181,143 @@ function calculerTousLesPoints() {
   };
 
   return pts;
+}
+
+function distancePoints(p1, p2) {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function genererIdPoint(index) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (index < alphabet.length) {
+    return alphabet[index];
+  }
+  const base = Math.floor(index / alphabet.length) - 1;
+  return `${alphabet[base]}${alphabet[index % alphabet.length]}`;
+}
+
+function parserPointsListe(pointsBruts) {
+  return pointsBruts
+    .trim()
+    .split(/\s+/)
+    .map((pair) => pair.split(',').map((v) => parseFloat(v)))
+    .filter((pair) => pair.length === 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+    .map(([x, y]) => ({ x, y }));
+}
+
+function extraireModeleDepuisSvg(svgText, nomFichier) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgText, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) {
+    throw new Error('Le fichier SVG est invalide.');
+  }
+
+  const pointsRef = {};
+  const segments = [];
+  const pointMap = new Map();
+
+  function getOrCreatePointId(point) {
+    const key = `${point.x.toFixed(2)}:${point.y.toFixed(2)}`;
+    if (pointMap.has(key)) {
+      return pointMap.get(key);
+    }
+    const id = genererIdPoint(pointMap.size);
+    pointsRef[id] = { x: point.x, y: point.y };
+    pointMap.set(key, id);
+    return id;
+  }
+
+  function pushSegment(startPoint, endPoint) {
+    const start = getOrCreatePointId(startPoint);
+    const end = getOrCreatePointId(endPoint);
+    if (start === end) {
+      return;
+    }
+    segments.push({
+      id: `S${segments.length + 1}`,
+      start,
+      end,
+    });
+  }
+
+  for (const line of doc.querySelectorAll('line')) {
+    const x1 = parseFloat(line.getAttribute('x1'));
+    const y1 = parseFloat(line.getAttribute('y1'));
+    const x2 = parseFloat(line.getAttribute('x2'));
+    const y2 = parseFloat(line.getAttribute('y2'));
+    if ([x1, y1, x2, y2].every(Number.isFinite)) {
+      pushSegment({ x: x1, y: y1 }, { x: x2, y: y2 });
+    }
+  }
+
+  for (const polyline of doc.querySelectorAll('polyline,polygon')) {
+    const pts = parserPointsListe(polyline.getAttribute('points') || '');
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      pushSegment(pts[i], pts[i + 1]);
+    }
+    if (polyline.tagName.toLowerCase() === 'polygon' && pts.length > 2) {
+      pushSegment(pts[pts.length - 1], pts[0]);
+    }
+  }
+
+  if (!Object.keys(pointsRef).length || !segments.length) {
+    throw new Error(
+      'SVG non pris en charge: utilisez des éléments line/polyline/polygon.'
+    );
+  }
+
+  return {
+    nom: nomFichier || 'Patron SVG importé',
+    pointsRef,
+    pointsCourants: Object.fromEntries(
+      Object.entries(pointsRef).map(([id, p]) => [id, { x: p.x, y: p.y }])
+    ),
+    segments,
+    zones: [],
+  };
+}
+
+function longueurChaine(points, chaineSegments) {
+  return chaineSegments.reduce((acc, seg) => {
+    const p1 = points[seg.de];
+    const p2 = points[seg.a];
+    if (!p1 || !p2) {
+      return acc;
+    }
+    return acc + distancePoints(p1, p2);
+  }, 0);
+}
+
+function recalculerPointsImportes() {
+  if (!patronImporte) {
+    return;
+  }
+
+  patronImporte.pointsCourants = Object.fromEntries(
+    Object.entries(patronImporte.pointsRef).map(([id, p]) => [id, { x: p.x, y: p.y }])
+  );
+
+  for (const zone of patronImporte.zones) {
+    if (!zone.segments.length || zone.valeurReference <= 0) {
+      continue;
+    }
+    const ratio = zone.valeurCourante / zone.valeurReference;
+    appliquerChainage(
+      patronImporte.pointsCourants,
+      patronImporte.pointsRef,
+      { ancreId: zone.segments[0].de, segments: zone.segments },
+      ratio
+    );
+  }
+}
+
+function estChaineFermee(segmentsZone) {
+  if (!segmentsZone.length) {
+    return false;
+  }
+  return segmentsZone[0].de === segmentsZone[segmentsZone.length - 1].a;
 }
 
 // ============================================================================
@@ -275,11 +422,75 @@ function cotationVerticale(p1, p2, labelText, couleur, decalageX) {
   return grp;
 }
 
+function dessinerPatronImporte() {
+  recalculerPointsImportes();
+  const pts = patronImporte.pointsCourants;
+
+  if (patronGroup) {
+    patronGroup.remove();
+  }
+  patronGroup = new paper.Group();
+
+  for (const seg of patronImporte.segments) {
+    const p1 = pts[seg.start];
+    const p2 = pts[seg.end];
+    if (!p1 || !p2) {
+      continue;
+    }
+    const line = new paper.Path.Line(
+      new paper.Point(p1.x, p1.y),
+      new paper.Point(p2.x, p2.y)
+    );
+    line.strokeColor = '#2c3e50';
+    line.strokeWidth = 1.8;
+    patronGroup.addChild(line);
+  }
+
+  patronImporte.zones.forEach((zone, index) => {
+    const color = ['#e74c3c', '#8e44ad', '#16a085', '#2980b9'][index % 4];
+    zone.segments.forEach((seg) => {
+      const p1 = pts[seg.de];
+      const p2 = pts[seg.a];
+      if (!p1 || !p2) {
+        return;
+      }
+      const line = new paper.Path.Line(
+        new paper.Point(p1.x, p1.y),
+        new paper.Point(p2.x, p2.y)
+      );
+      line.strokeColor = color;
+      line.strokeWidth = 3;
+      patronGroup.addChild(line);
+    });
+  });
+
+  for (const [id, coord] of Object.entries(pts)) {
+    const dot = new paper.Path.Circle(new paper.Point(coord.x, coord.y), 3.2);
+    dot.fillColor = '#d35400';
+    patronGroup.addChild(dot);
+
+    const label = new paper.PointText(new paper.Point(coord.x + 6, coord.y - 6));
+    label.content = id;
+    label.fillColor = '#555';
+    label.fontSize = 11;
+    label.fontWeight = 'bold';
+    patronGroup.addChild(label);
+  }
+
+  paper.view.update();
+  mettreAJourInfoPoints(pts);
+}
+
 /**
  * Dessine (ou redessine) le patron complet dans Paper.js.
  * Supprime le groupe précédent avant de recréer tous les éléments.
  */
 function dessinerPatron() {
+  if (patronImporte) {
+    dessinerPatronImporte();
+    return;
+  }
+
   const pts = calculerTousLesPoints();
 
   // Supprimer le dessin précédent
@@ -392,6 +603,11 @@ function creerControles() {
   const container = document.getElementById('mesures-list');
   container.innerHTML = '';
 
+  if (patronImporte) {
+    container.innerHTML = '<p class="hint">Mesures paramétriques natives désactivées après import SVG.</p>';
+    return;
+  }
+
   for (const mesure of patronData.mesures) {
     const div = document.createElement('div');
     div.className = 'mesure-control';
@@ -437,6 +653,172 @@ function creerControles() {
   }
 }
 
+function peuplerOptionsTypesMesure() {
+  const select = document.getElementById('zone-measure-type');
+  select.innerHTML = '';
+  for (const item of MEASURE_TYPE_OPTIONS) {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.label;
+    select.appendChild(option);
+  }
+}
+
+function rafraichirSelecteursPointsEtZones() {
+  const zoneSelect = document.getElementById('zone-select');
+  const startSelect = document.getElementById('segment-start');
+  const endSelect = document.getElementById('segment-end');
+
+  zoneSelect.innerHTML = '';
+  startSelect.innerHTML = '';
+  endSelect.innerHTML = '';
+
+  if (!patronImporte) {
+    return;
+  }
+
+  patronImporte.zones.forEach((zone) => {
+    const option = document.createElement('option');
+    option.value = zone.id;
+    option.textContent = `${zone.nom} (${zone.typeMesure})`;
+    zoneSelect.appendChild(option);
+  });
+
+  Object.keys(patronImporte.pointsRef).forEach((pointId) => {
+    const optionStart = document.createElement('option');
+    optionStart.value = pointId;
+    optionStart.textContent = pointId;
+    startSelect.appendChild(optionStart);
+
+    const optionEnd = document.createElement('option');
+    optionEnd.value = pointId;
+    optionEnd.textContent = pointId;
+    endSelect.appendChild(optionEnd);
+  });
+}
+
+function rafraichirDetailsZones() {
+  const details = document.getElementById('zone-details');
+  details.innerHTML = '';
+
+  if (!patronImporte || !patronImporte.zones.length) {
+    details.innerHTML = '<li>Aucune zone définie.</li>';
+    return;
+  }
+
+  patronImporte.zones.forEach((zone) => {
+    const li = document.createElement('li');
+    const chaine = zone.segments.map((seg) => `${seg.de}->${seg.a}`).join(', ') || '∅';
+    const etatFermeture = estChaineFermee(zone.segments) ? 'fermée' : 'ouverte';
+    li.innerHTML = `
+      <strong>${zone.nom}</strong> — ${zone.typeMesure}<br />
+      Segments: ${chaine}<br />
+      Contour: ${etatFermeture}<br />
+      Réf: ${(zone.valeurReference / patronData.echellePxParCm).toFixed(2)} cm
+      <label for="zone-value-${zone.id}">Valeur réelle (cm)</label>
+      <input id="zone-value-${zone.id}" type="number" min="1" step="0.1" value="${zone.valeurCouranteCm.toFixed(2)}" />
+    `;
+    details.appendChild(li);
+
+    const input = li.querySelector(`#zone-value-${zone.id}`);
+    input.addEventListener('input', (event) => {
+      const valueCm = parseFloat(event.target.value);
+      if (!Number.isFinite(valueCm) || valueCm <= 0) {
+        return;
+      }
+      zone.valeurCouranteCm = valueCm;
+      zone.valeurCourante = valueCm * patronData.echellePxParCm;
+      dessinerPatron();
+    });
+  });
+}
+
+function creerZoneMesure() {
+  if (!patronImporte) {
+    return;
+  }
+
+  const typeMesure = document.getElementById('zone-measure-type').value;
+  const nomZoneInput = document.getElementById('zone-name');
+  const nomZone = nomZoneInput.value.trim() || `Zone ${patronImporte.zones.length + 1}`;
+  const zone = {
+    id: `zone_${patronImporte.zones.length + 1}`,
+    nom: nomZone,
+    typeMesure,
+    segments: [],
+    valeurReference: 0,
+    valeurCourante: 0,
+    valeurCouranteCm: 0,
+  };
+  patronImporte.zones.push(zone);
+  nomZoneInput.value = '';
+  rafraichirSelecteursPointsEtZones();
+  rafraichirDetailsZones();
+}
+
+function ajouterSegmentOrienteZone() {
+  if (!patronImporte) {
+    return;
+  }
+
+  const zoneId = document.getElementById('zone-select').value;
+  const start = document.getElementById('segment-start').value;
+  const end = document.getElementById('segment-end').value;
+  const status = document.getElementById('svg-import-status');
+  const zone = patronImporte.zones.find((z) => z.id === zoneId);
+  if (!zone || !start || !end || start === end) {
+    status.textContent = 'Sélection de segment invalide.';
+    return;
+  }
+
+  if (zone.segments.length && zone.segments[zone.segments.length - 1].a !== start) {
+    status.textContent = 'La chaîne doit rester continue (fin du segment précédent = début du suivant).';
+    return;
+  }
+
+  zone.segments.push({ de: start, a: end });
+  zone.valeurReference = longueurChaine(patronImporte.pointsRef, zone.segments);
+  if (zone.valeurReference > 0 && zone.valeurCourante <= 0) {
+    zone.valeurCourante = zone.valeurReference;
+    zone.valeurCouranteCm = zone.valeurReference / patronData.echellePxParCm;
+  }
+
+  status.textContent = `Segment ${start}->${end} ajouté à "${zone.nom}".`;
+  rafraichirDetailsZones();
+  dessinerPatron();
+}
+
+function brancherUiImportEtZones() {
+  peuplerOptionsTypesMesure();
+  rafraichirSelecteursPointsEtZones();
+  rafraichirDetailsZones();
+
+  const status = document.getElementById('svg-import-status');
+  const fileInput = document.getElementById('svg-import-input');
+  fileInput.addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const svgText = await file.text();
+      patronImporte = extraireModeleDepuisSvg(svgText, file.name);
+      status.textContent = `Import réussi: ${Object.keys(patronImporte.pointsRef).length} points, ${patronImporte.segments.length} segments.`;
+      document.getElementById('patron-name').textContent = patronImporte.nom;
+      creerControles();
+      rafraichirSelecteursPointsEtZones();
+      rafraichirDetailsZones();
+      dessinerPatron();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+
+  document.getElementById('create-zone-btn').addEventListener('click', creerZoneMesure);
+  document.getElementById('add-segment-btn').addEventListener('click', ajouterSegmentOrienteZone);
+}
+
 /**
  * Rafraîchit la liste des coordonnées affichées dans le panneau d'info.
  * @param {Object} pts - { A:{x,y}, B:{x,y}, … }
@@ -457,6 +839,7 @@ function mettreAJourInfoPoints(pts) {
 
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('patron-name').textContent = patronData.nom;
+  brancherUiImportEtZones();
   creerControles();
   dessinerPatron();
 });
