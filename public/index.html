@@ -24,6 +24,33 @@
         <h2>Mesures du patron</h2>
         <p class="patron-name" id="patron-name">Chargement…</p>
 
+        <section class="panel-section">
+          <h3>Import vectoriel (SVG)</h3>
+          <input type="file" id="svg-import-input" accept=".svg,image/svg+xml" />
+          <p class="hint" id="svg-import-status">Aucun fichier importé.</p>
+        </section>
+
+        <section class="panel-section" id="zone-editor">
+          <h3>Zones de mesure</h3>
+          <label for="zone-measure-type">Type de mesure</label>
+          <select id="zone-measure-type"></select>
+          <label for="zone-name">Nom de zone</label>
+          <input id="zone-name" type="text" placeholder="Ex: Tour de taille" />
+          <button type="button" id="create-zone-btn">Créer la zone</button>
+
+          <div class="segment-editor">
+            <label for="zone-select">Zone</label>
+            <select id="zone-select"></select>
+            <label for="segment-start">Départ</label>
+            <select id="segment-start"></select>
+            <label for="segment-end">Arrivée</label>
+            <select id="segment-end"></select>
+            <button type="button" id="add-segment-btn">Ajouter segment orienté</button>
+          </div>
+
+          <ul id="zone-details"></ul>
+        </section>
+
         <!-- Les sliders sont générés dynamiquement par app.js -->
         <div id="mesures-list"></div>
 
