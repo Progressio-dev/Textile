@@ -336,10 +336,11 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 
 function extraireModeleDepuisPdf(pdfText, nomFichier) {
   if (/\/Filter\s*\/FlateDecode/i.test(pdfText || '')) {
-    throw new Error('PDF compressé non pris en charge. Exportez sans compression ou utilisez DXF.');
+    throw new Error('Ce PDF est compressé et ne peut pas être importé. Utilisez un fichier DXF ou un PDF non compressé.');
   }
 
-  // Extrait des nombres + opérateurs de path PDF (m, l, S, s, f, n, h).
+  // Extrait des nombres + opérateurs de path PDF supportés ici (m, l, S, s, f, n, h).
+  // Les autres opérateurs (c, v, y, re...) ne sont pas interprétés dans ce flux minimal.
   const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[mlSsfnh]/g) || [];
   const segmentsBruts = [];
   const pile = [];
@@ -384,7 +385,11 @@ function extraireModeleDepuisPdf(pdfText, nomFichier) {
 
     // h: close path (retour au point de départ du sous-chemin).
     if (token === 'h' && pointCourant && debutSousChemin) {
-      if (pointCourant.x !== debutSousChemin.x || pointCourant.y !== debutSousChemin.y) {
+      const epsilon = 1e-6;
+      if (
+        Math.abs(pointCourant.x - debutSousChemin.x) > epsilon
+        || Math.abs(pointCourant.y - debutSousChemin.y) > epsilon
+      ) {
         segmentsBruts.push({ start: pointCourant, end: debutSousChemin });
       }
       pointCourant = debutSousChemin;
@@ -411,6 +416,14 @@ function extraireModeleDepuisFichier(file, rawText) {
     return extraireModeleDepuisPdf(rawText, nom);
   }
   throw new Error('Format non pris en charge. Importez un fichier DXF ou PDF.');
+}
+
+function decoderTexteVectorielDepuisBuffer(rawBuffer) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(rawBuffer);
+  } catch (error) {
+    return new TextDecoder('latin1').decode(rawBuffer);
+  }
 }
 
 function longueurChaine(points, chaineSegments) {
@@ -955,7 +968,7 @@ function brancherUiImportEtZones() {
 
     try {
       const rawBuffer = await file.arrayBuffer();
-      const rawText = new TextDecoder('latin1').decode(rawBuffer);
+      const rawText = decoderTexteVectorielDepuisBuffer(rawBuffer);
       patronImporte = extraireModeleDepuisFichier(file, rawText);
       status.textContent = `Import réussi: ${Object.keys(patronImporte.pointsRef).length} points, ${patronImporte.segments.length} segments.`;
       document.getElementById('patron-name').textContent = patronImporte.nom;
