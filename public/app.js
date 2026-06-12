@@ -319,7 +319,7 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
       for (let p = 0; p < pts.length - 1; p += 1) {
         segmentsBruts.push({ start: pts[p], end: pts[p + 1] });
       }
-      // En DXF, le code groupe 70 contient les flags ; bit 0 = polyligne fermée.
+      // En DXF, le code groupe 70 contient les flags ; bit 0 = polyline fermée.
       const flags = parseInt((entite['70'] || ['0'])[0], 10);
       if ((flags & 1) === 1 && pts.length > 2) {
         segmentsBruts.push({ start: pts[pts.length - 1], end: pts[0] });
@@ -335,11 +335,25 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 }
 
 function extraireModeleDepuisPdf(pdfText, nomFichier) {
-  // Extrait des tokens numériques + opérateurs PDF de tracé (m/l/S/s/f/n/h).
-  const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[A-Za-z]{1,2}/g) || [];
+  if (/\/Filter\s*\/FlateDecode/i.test(pdfText || '')) {
+    throw new Error('PDF compressé non pris en charge. Exportez sans compression ou utilisez DXF.');
+  }
+
+  // Extrait des nombres + opérateurs de path PDF (m, l, S, s, f, n, h).
+  const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[mlSsfnh]/g) || [];
   const segmentsBruts = [];
   const pile = [];
   let pointCourant = null;
+  let debutSousChemin = null;
+
+  function lirePairesDepuisPile() {
+    const paires = [];
+    for (let i = 0; i + 1 < pile.length; i += 2) {
+      paires.push({ x: pile[i], y: pile[i + 1] });
+    }
+    pile.length = 0;
+    return paires;
+  }
 
   for (const token of tokens) {
     const num = parseFloat(token);
@@ -349,21 +363,37 @@ function extraireModeleDepuisPdf(pdfText, nomFichier) {
     }
 
     if (token === 'm' && pile.length >= 2) {
-      pointCourant = { x: pile[pile.length - 2], y: pile[pile.length - 1] };
-      pile.length = 0;
+      const points = lirePairesDepuisPile();
+      pointCourant = points[0];
+      debutSousChemin = points[0];
+      for (let i = 1; i < points.length; i += 1) {
+        segmentsBruts.push({ start: pointCourant, end: points[i] });
+        pointCourant = points[i];
+      }
       continue;
     }
 
     if (token === 'l' && pile.length >= 2 && pointCourant) {
-      const nextPoint = { x: pile[pile.length - 2], y: pile[pile.length - 1] };
-      segmentsBruts.push({ start: pointCourant, end: nextPoint });
-      pointCourant = nextPoint;
+      const points = lirePairesDepuisPile();
+      for (const nextPoint of points) {
+        segmentsBruts.push({ start: pointCourant, end: nextPoint });
+        pointCourant = nextPoint;
+      }
+      continue;
+    }
+
+    // h: close path (retour au point de départ du sous-chemin).
+    if (token === 'h' && pointCourant && debutSousChemin) {
+      if (pointCourant.x !== debutSousChemin.x || pointCourant.y !== debutSousChemin.y) {
+        segmentsBruts.push({ start: pointCourant, end: debutSousChemin });
+      }
+      pointCourant = debutSousChemin;
       pile.length = 0;
       continue;
     }
 
-    // S/s: stroke, f: fill, h: close path, n: end path sans rendu.
-    if (token === 'S' || token === 's' || token === 'f' || token === 'n' || token === 'h') {
+    // S/s: stroke, f: fill, n: fin de path sans rendu.
+    if (token === 'S' || token === 's' || token === 'f' || token === 'n') {
       pile.length = 0;
     }
   }
@@ -924,7 +954,8 @@ function brancherUiImportEtZones() {
     }
 
     try {
-      const rawText = await file.text();
+      const rawBuffer = await file.arrayBuffer();
+      const rawText = new TextDecoder('latin1').decode(rawBuffer);
       patronImporte = extraireModeleDepuisFichier(file, rawText);
       status.textContent = `Import réussi: ${Object.keys(patronImporte.pointsRef).length} points, ${patronImporte.segments.length} segments.`;
       document.getElementById('patron-name').textContent = patronImporte.nom;
