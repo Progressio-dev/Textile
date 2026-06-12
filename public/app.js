@@ -275,7 +275,8 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 
   function lireNombre(entite, code, index) {
     const valeurs = entite[code] || [];
-    const raw = valeurs[index ?? 0];
+    const idx = index === undefined || index === null ? 0 : index;
+    const raw = valeurs[idx];
     const num = parseFloat(raw);
     return Number.isFinite(num) ? num : NaN;
   }
@@ -318,6 +319,7 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
       for (let p = 0; p < pts.length - 1; p += 1) {
         segmentsBruts.push({ start: pts[p], end: pts[p + 1] });
       }
+      // En DXF, le code groupe 70 contient les flags ; bit 0 = polyligne fermée.
       const flags = parseInt((entite['70'] || ['0'])[0], 10);
       if ((flags & 1) === 1 && pts.length > 2) {
         segmentsBruts.push({ start: pts[pts.length - 1], end: pts[0] });
@@ -333,6 +335,7 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 }
 
 function extraireModeleDepuisPdf(pdfText, nomFichier) {
+  // Extrait des tokens numériques + opérateurs PDF de tracé (m/l/S/s/f/n/h).
   const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[A-Za-z]{1,2}/g) || [];
   const segmentsBruts = [];
   const pile = [];
@@ -359,6 +362,7 @@ function extraireModeleDepuisPdf(pdfText, nomFichier) {
       continue;
     }
 
+    // S/s: stroke, f: fill, h: close path, n: end path sans rendu.
     if (token === 'S' || token === 's' || token === 'f' || token === 'n' || token === 'h') {
       pile.length = 0;
     }
