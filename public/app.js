@@ -105,6 +105,12 @@ const MEASURE_TYPE_OPTIONS = [
 
 let patronImporte = null;
 
+function echelleActive() {
+  return Number.isFinite(patronData.echellePxParCm) && patronData.echellePxParCm > 0
+    ? patronData.echellePxParCm
+    : 1;
+}
+
 // ============================================================================
 // COUCHE GÉOMÉTRIQUE
 // Recalcule toutes les coordonnées à partir des pointsRef et des mesures
@@ -199,24 +205,42 @@ function genererIdPoint(index) {
 }
 
 function parserPointsListe(pointsBruts) {
-  return pointsBruts
+  return (pointsBruts || '')
     .trim()
-    .split(/\s+/)
+    .replace(/\s+/g, ' ')
+    .split(' ')
     .map((pair) => pair.split(',').map((v) => parseFloat(v)))
     .filter((pair) => pair.length === 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
     .map(([x, y]) => ({ x, y }));
 }
 
 function extraireModeleDepuisSvg(svgText, nomFichier) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgText, 'image/svg+xml');
-  if (doc.querySelector('parsererror')) {
+  if (!/<svg[\s>]/i.test(svgText)) {
     throw new Error('Le fichier SVG est invalide.');
+  }
+
+  if (/<\s*(script|foreignObject|iframe|object)\b/i.test(svgText)) {
+    throw new Error('Le SVG contient des balises non autorisées.');
   }
 
   const pointsRef = {};
   const segments = [];
   const pointMap = new Map();
+
+  function lireAttributNombre(attrText, nom) {
+    const regex = new RegExp(`${nom}\\s*=\\s*["']([^"']+)["']`, 'i');
+    const match = attrText.match(regex);
+    if (!match) {
+      return NaN;
+    }
+    return parseFloat(match[1]);
+  }
+
+  function lireAttributTexte(attrText, nom) {
+    const regex = new RegExp(`${nom}\\s*=\\s*["']([^"']+)["']`, 'i');
+    const match = attrText.match(regex);
+    return match ? match[1] : '';
+  }
 
   function getOrCreatePointId(point) {
     const key = `${point.x.toFixed(2)}:${point.y.toFixed(2)}`;
@@ -242,22 +266,29 @@ function extraireModeleDepuisSvg(svgText, nomFichier) {
     });
   }
 
-  for (const line of doc.querySelectorAll('line')) {
-    const x1 = parseFloat(line.getAttribute('x1'));
-    const y1 = parseFloat(line.getAttribute('y1'));
-    const x2 = parseFloat(line.getAttribute('x2'));
-    const y2 = parseFloat(line.getAttribute('y2'));
+  const lineRegex = /<line\b([^>]*)\/?>/gi;
+  let matchLine;
+  while ((matchLine = lineRegex.exec(svgText)) !== null) {
+    const attrs = matchLine[1];
+    const x1 = lireAttributNombre(attrs, 'x1');
+    const y1 = lireAttributNombre(attrs, 'y1');
+    const x2 = lireAttributNombre(attrs, 'x2');
+    const y2 = lireAttributNombre(attrs, 'y2');
     if ([x1, y1, x2, y2].every(Number.isFinite)) {
       pushSegment({ x: x1, y: y1 }, { x: x2, y: y2 });
     }
   }
 
-  for (const polyline of doc.querySelectorAll('polyline,polygon')) {
-    const pts = parserPointsListe(polyline.getAttribute('points') || '');
+  const polyRegex = /<(polyline|polygon)\b([^>]*)\/?>/gi;
+  let matchPoly;
+  while ((matchPoly = polyRegex.exec(svgText)) !== null) {
+    const type = matchPoly[1].toLowerCase();
+    const attrs = matchPoly[2];
+    const pts = parserPointsListe(lireAttributTexte(attrs, 'points'));
     for (let i = 0; i < pts.length - 1; i += 1) {
       pushSegment(pts[i], pts[i + 1]);
     }
-    if (polyline.tagName.toLowerCase() === 'polygon' && pts.length > 2) {
+    if (type === 'polygon' && pts.length > 2) {
       pushSegment(pts[pts.length - 1], pts[0]);
     }
   }
@@ -565,7 +596,7 @@ function dessinerPatron() {
   // ── Barre d'échelle ─────────────────────────────────────────────────────
   const xBar = pts.A.x;
   const yBar = pts.D.y + 36;
-  const barPx = 10 * patronData.echellePxParCm;   // 10 cm en pixels
+  const barPx = 10 * echelleActive();   // 10 cm en pixels
 
   const bar = new paper.Path.Line(
     new paper.Point(xBar, yBar),
@@ -710,24 +741,42 @@ function rafraichirDetailsZones() {
     const li = document.createElement('li');
     const chaine = zone.segments.map((seg) => `${seg.de}->${seg.a}`).join(', ') || '∅';
     const etatFermeture = estChaineFermee(zone.segments) ? 'fermée' : 'ouverte';
-    li.innerHTML = `
-      <strong>${zone.nom}</strong> — ${zone.typeMesure}<br />
-      Segments: ${chaine}<br />
-      Contour: ${etatFermeture}<br />
-      Réf: ${(zone.valeurReference / patronData.echellePxParCm).toFixed(2)} cm
-      <label for="zone-value-${zone.id}">Valeur réelle (cm)</label>
-      <input id="zone-value-${zone.id}" type="number" min="1" step="0.1" value="${zone.valeurCouranteCm.toFixed(2)}" />
-    `;
+    const title = document.createElement('strong');
+    title.textContent = zone.nom;
+    li.appendChild(title);
+    li.appendChild(document.createTextNode(` — ${zone.typeMesure}`));
+    li.appendChild(document.createElement('br'));
+    li.appendChild(document.createTextNode(`Segments: ${chaine}`));
+    li.appendChild(document.createElement('br'));
+    li.appendChild(document.createTextNode(`Contour: ${etatFermeture}`));
+    li.appendChild(document.createElement('br'));
+    li.appendChild(
+      document.createTextNode(
+        `Réf: ${(zone.valeurReference / echelleActive()).toFixed(2)} cm`
+      )
+    );
+
+    const label = document.createElement('label');
+    label.htmlFor = `zone-value-${zone.id}`;
+    label.textContent = 'Valeur réelle (cm)';
+    li.appendChild(label);
+
+    const input = document.createElement('input');
+    input.id = `zone-value-${zone.id}`;
+    input.type = 'number';
+    input.min = '1';
+    input.step = '0.1';
+    input.value = zone.valeurCouranteCm.toFixed(2);
+    li.appendChild(input);
     details.appendChild(li);
 
-    const input = li.querySelector(`#zone-value-${zone.id}`);
     input.addEventListener('input', (event) => {
       const valueCm = parseFloat(event.target.value);
       if (!Number.isFinite(valueCm) || valueCm <= 0) {
         return;
       }
       zone.valeurCouranteCm = valueCm;
-      zone.valeurCourante = valueCm * patronData.echellePxParCm;
+      zone.valeurCourante = valueCm * echelleActive();
       dessinerPatron();
     });
   });
@@ -780,7 +829,7 @@ function ajouterSegmentOrienteZone() {
   zone.valeurReference = longueurChaine(patronImporte.pointsRef, zone.segments);
   if (zone.valeurReference > 0 && zone.valeurCourante <= 0) {
     zone.valeurCourante = zone.valeurReference;
-    zone.valeurCouranteCm = zone.valeurReference / patronData.echellePxParCm;
+    zone.valeurCouranteCm = zone.valeurReference / echelleActive();
   }
 
   status.textContent = `Segment ${start}->${end} ajouté à "${zone.nom}".`;
