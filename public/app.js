@@ -275,7 +275,7 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 
   function lireNombre(entite, code, index) {
     const valeurs = entite[code] || [];
-    const raw = valeurs[index || 0];
+    const raw = valeurs[index ?? 0];
     const num = parseFloat(raw);
     return Number.isFinite(num) ? num : NaN;
   }
@@ -333,7 +333,7 @@ function extraireModeleDepuisDxf(dxfText, nomFichier) {
 }
 
 function extraireModeleDepuisPdf(pdfText, nomFichier) {
-  const tokens = (pdfText || '').match(/-?\d*\.?\d+|[A-Za-z]{1,2}/g) || [];
+  const tokens = (pdfText || '').match(/-?(?:\d+\.\d+|\d+|\.\d+)|[A-Za-z]{1,2}/g) || [];
   const segmentsBruts = [];
   const pile = [];
   let pointCourant = null;
